@@ -23,8 +23,13 @@ jobs:
 
       - run: npm install
       - run: npm run site:preview
-      - name: Check artifact entry point
-        run: test -s _site/index.html
+      - name: Prepare Makers static artifact
+        run: |
+          test -s _site/index.html
+          if cmp -s _site/index.html _site/404.html; then
+            rm _site/404.html
+          fi
+          cp site/edgeone.json _site/edgeone.json
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
