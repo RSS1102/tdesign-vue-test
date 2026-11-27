@@ -1,0 +1,63 @@
+name: EdgeOne PR preview pilot
+
+on:
+  pull_request:
+    branches: [codex/edgeone-preview-base]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+
+      - run: npm install
+      - run: npm run site:preview
+      - name: Check artifact entry point
+        run: test -s _site/index.html
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: edgeone-preview-site
+          path: _site/
+          if-no-files-found: error
+          retention-days: 14
+
+  deploy:
+    if: github.event.pull_request.head.repo.full_name == github.repository && vars.EDGEONE_PREVIEW_PROJECT != ''
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: edgeone-preview-site
+          path: _site
+
+      - name: Publish to Tencent Cloud China
+        shell: bash
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          PROJECT: ${{ vars.EDGEONE_PREVIEW_PROJECT }}
+        run: |
+          if [ -z "$EDGEONE_API_TOKEN" ]; then
+            echo "::error::Set the EDGEONE_API_TOKEN repository secret with a Tencent Cloud China Makers token."
+            exit 1
+          fi
+          test -s _site/index.html
+          npx --yes edgeone@1.7.7 makers deploy ./_site -n "$PROJECT" -t "$EDGEONE_API_TOKEN" -e preview --json > "$RUNNER_TEMP/edgeone-deployment.jsonl"
+          url="$(tail -n 1 "$RUNNER_TEMP/edgeone-deployment.jsonl" | jq -er 'select(.status == "success") | .url | select(type == "string" and startswith("https://"))')"
+          printf '[打开 EdgeOne PR 预览](%s)\n' "$url" >> "$GITHUB_STEP_SUMMARY"
